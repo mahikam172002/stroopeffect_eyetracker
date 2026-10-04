@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stroop Task with Webcam Eye Tracking</title>
+  <!-- Versions follow the jsPsych 8 eye-tracking documentation. Libraries load from CDNs. -->
+  <script src="https://unpkg.com/jspsych@8.3.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.2.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-webgazer-init-camera@2.1.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-webgazer-calibrate@2.1.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-webgazer-validate@2.1.0"></script>
+  <script src="https://cdn.jsdelivr.net/gh/jspsych/jspsych@jspsych@7.0.0/examples/js/webgazer/webgazer.js"></script>
+  <script src="https://unpkg.com/@jspsych/extension-webgazer@1.2.0"></script>
+  <link rel="stylesheet" href="https://unpkg.com/jspsych@8.3.0/css/jspsych.css" />
+  <style>
+    body { background: #fafafa; font-family: Arial, sans-serif; }
+    .instructions { max-width: 700px; margin: auto; line-height: 1.65; text-align: left; }
+    #stroop-word { font-size: 70px; font-weight: bold; letter-spacing: .06em; }
+    kbd { padding: 2px 8px; border: 1px solid #999; border-radius: 4px; }
+  </style>
+</head>
+<body></body>
+<script>
+'use strict';
+// This is a new jsPsych pilot, not an exact recreation of your PsychoPy timings.
+// All gaze processing stays in the participant's browser; only local CSV files are downloaded.
+const jsPsych = initJsPsych({
+  extensions: [{ type: jsPsychExtensionWebgazer }],
+  on_finish: function () {
+    const trials = jsPsych.data.get().filter({ task: 'stroop' }).values();
+    const columns = ['trial_number','condition','word','ink','correct_key','response','correct','rt_ms','gaze_sample_count','gaze_data_json'];
+    function csvCell(value) {
+      const s = value === undefined || value === null ? '' : String(value);
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    const lines = [columns.map(csvCell).join(',')];
+    for (const t of trials) {
+      const row = [t.trial_number,t.condition,t.word,t.ink,t.correct_key,t.response,t.correct,t.rt,
+        (t.webgazer_data || []).length,JSON.stringify(t.webgazer_data || [])];
+      lines.push(row.map(csvCell).join(','));
+    }
+    const csv = lines.join('\r\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stroop_gaze_pilot.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+});
+
+const timeline = [];
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="instructions"><h2>Stroop task + webcam eye tracking</h2>
+    <p>This pilot uses your laptop webcam to estimate where you look while you identify the <b>INK COLOUR</b> of words.</p>
+    <p>It does not record or upload webcam video. Gaze coordinates and response data will be downloaded to this computer at the end.</p>
+    <p>Use a laptop/desktop with Chrome, good front lighting, and your head relatively still. Allow webcam access on the next screen.</p></div>`,
+  choices: ['I agree — continue']
+});
+timeline.push({ type: jsPsychWebgazerInitCamera });
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="instructions"><h3>Eye-tracker calibration</h3><p>Look at each dot and click it. Keep your head still and sit at a comfortable distance from the screen.</p></div>`,
+  choices: ['Start calibration']
+});
+timeline.push({
+  type: jsPsychWebgazerCalibrate,
+  calibration_points: [[25,25],[50,25],[75,25],[25,50],[50,50],[75,50],[25,75],[50,75],[75,75]],
+  repetitions_per_point: 2,
+  randomize_calibration_order: true,
+  calibration_mode: 'click'
+});
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="instructions"><h3>Check calibration</h3><p>Look at each dot that appears. Do not click during this part. If the tracking seems poor, improve lighting and try again later.</p></div>`,
+  choices: ['Validate']
+});
+timeline.push({
+  type: jsPsychWebgazerValidate,
+  validation_points: [[25,25],[75,25],[50,50],[25,75],[75,75]],
+  validation_point_coordinates: 'percent',
+  roi_radius: 200,
+  time_to_saccade: 1000,
+  validation_duration: 2000,
+  data: { task: 'validation' }
+});
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<div class="instructions"><h2>Stroop instructions</h2>
+    <p>Respond to the <b>INK COLOUR</b>, not the word itself.</p>
+    <p><kbd>R</kbd> = RED &nbsp; <kbd>G</kbd> = GREEN &nbsp; <kbd>B</kbd> = BLUE</p>
+    <p>For example, if the word <b style="color:blue">RED</b> appears, press <kbd>B</kbd>.</p>
+    <p>There will be 18 trials. Focus on the word and respond as quickly and accurately as possible.</p></div>`,
+  choices: ['Start Stroop']
+});
+
+// Balanced pilot: 3 words × 3 congruent + 3 incongruent trials = 18 trials.
+const colours = ['red', 'green', 'blue'];
+const trialSpecs = [];
+for (const word of colours) {
+  const other = colours.filter(c => c !== word);
+  for (let i = 0; i < 3; i++) {
+    trialSpecs.push({ word, ink: word, condition: 'congruent' });
+    trialSpecs.push({ word, ink: other[i % 2], condition: 'incongruent' });
+  }
+}
+const order = jsPsych.randomization.shuffle(trialSpecs);
+order.forEach((spec, index) => {
+  timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: '<div style="font-size:52px">+</div>',
+    choices: 'NO_KEYS',
+    trial_duration: 500
+  });
+  timeline.push({
+    type: jsPsychHtmlKeyboardResponse,
+    stimulus: `<div id="stroop-word" style="color:${spec.ink}">${spec.word.toUpperCase()}</div>`,
+    choices: ['r','g','b'],
+    trial_duration: 3000,
+    response_ends_trial: true,
+    post_trial_gap: 400,
+    data: {
+      task: 'stroop', trial_number: index + 1,
+      condition: spec.condition, word: spec.word, ink: spec.ink,
+      correct_key: spec.ink[0]
+    },
+    extensions: [{ type: jsPsychExtensionWebgazer, params: { targets: ['#stroop-word'] } }],
+    on_finish: function (data) {
+      data.correct = data.response === data.correct_key;
+    }
+  });
+});
+timeline.push({
+  type: jsPsychHtmlButtonResponse,
+  stimulus: `<h2>Finished!</h2><p>Press the button below to complete the study and download your CSV results.</p>
+    <p>If your browser asks for permission to download a file, please allow it.</p>`,
+  choices: ['Finish and download data']
+});
+jsPsych.run(timeline);
+</script>
+</html>
